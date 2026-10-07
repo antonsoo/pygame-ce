@@ -270,6 +270,10 @@ On Android, the following events can be generated:
    an ``exclude`` parameter is passed, the ``eventtype`` parameter *must* be
    None.
 
+   Returned events keep their original queue order, as do any events left in
+   the queue. The order of types in ``eventtype`` or ``exclude`` does not
+   affect event order.
+
    If you are only taking specific events from the queue, be aware that the
    queue could eventually fill up with the events you are not interested.
 

@@ -548,6 +548,64 @@ class EventModuleTest(unittest.TestCase):
             pygame.error, pygame.event.get, pygame.KEYDOWN, False, pygame.KEYUP
         )
 
+    def test_get_sequence_preserves_order(self):
+        """Filtering keeps queue order, regardless of the type sequence order."""
+        for count in (9, 768):
+            events = [
+                pygame.event.Event(event_type, index=index)
+                for index, event_type in enumerate(
+                    [pygame.KEYUP, pygame.USEREVENT, pygame.KEYDOWN] * (count // 3)
+                )
+            ]
+            for event_types in (
+                [pygame.KEYDOWN, pygame.KEYUP],
+                (pygame.KEYUP, pygame.KEYDOWN),
+                [pygame.KEYDOWN, pygame.KEYUP, pygame.KEYDOWN],
+                [],
+            ):
+                with self.subTest(count=count, event_types=event_types):
+                    for event in events:
+                        pygame.event.post(event)
+
+                    selected = pygame.event.get(event_types, pump=False)
+                    remaining = pygame.event.get(pump=False)
+
+                    self.assertEqual(
+                        selected, [e for e in events if e.type in event_types]
+                    )
+                    self.assertEqual(
+                        remaining, [e for e in events if e.type not in event_types]
+                    )
+
+    def test_get_exclude_preserves_order(self):
+        """Excluding types preserves both returned and retained event order."""
+        for count in (9, 768):
+            events = [
+                pygame.event.Event(event_type, index=index)
+                for index, event_type in enumerate(
+                    [pygame.KEYUP, pygame.USEREVENT, pygame.KEYDOWN] * (count // 3)
+                )
+            ]
+            for event_types in (
+                [pygame.KEYDOWN, pygame.KEYUP],
+                (pygame.KEYUP, pygame.KEYDOWN),
+                [pygame.KEYDOWN, pygame.KEYUP, pygame.KEYDOWN],
+                [],
+            ):
+                with self.subTest(count=count, event_types=event_types):
+                    for event in events:
+                        pygame.event.post(event)
+
+                    selected = pygame.event.get(exclude=event_types, pump=False)
+                    remaining = pygame.event.get(pump=False)
+
+                    self.assertEqual(
+                        selected, [e for e in events if e.type not in event_types]
+                    )
+                    self.assertEqual(
+                        remaining, [e for e in events if e.type in event_types]
+                    )
+
     def test_get_exclude(self):
         pygame.event.post(pygame.event.Event(pygame.USEREVENT))
         pygame.event.post(pygame.event.Event(pygame.KEYDOWN))
