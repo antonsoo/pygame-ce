@@ -48,7 +48,6 @@
 #define JOYEVENT_DEVICE_INDEX "device_index"
 
 /* Define custom functions for peep events, for SDL1/2 compat */
-#define PG_PEEP_EVENT(a, b, c, d) SDL_PeepEvents(a, b, c, d, d)
 #define PG_PEEP_EVENT_ALL(x, y, z) \
     SDL_PeepEvents(x, y, z, SDL_FIRSTEVENT, SDL_LASTEVENT)
 
@@ -488,6 +487,46 @@ _pg_pgevent_type(SDL_Event *event)
     }
 #endif
     return event->type;
+}
+
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+typedef struct {
+    SDL_Event *event;
+    Uint32 type;
+    SDL_eventaction action;
+    int found;
+} pgWindowEventFilter;
+
+static int SDLCALL
+_pg_filter_window_events(void *userdata, SDL_Event *event)
+{
+    pgWindowEventFilter *filter = userdata;
+    if (_pg_pgevent_type(event) != filter->type ||
+        (filter->event && filter->found)) {
+        return 1;
+    }
+    if (filter->event) {
+        *filter->event = *event;
+    }
+    filter->found = 1;
+    return filter->action != SDL_GETEVENT;
+}
+#endif
+
+static int
+_pg_peep_event(SDL_Event *event, SDL_eventaction action, Uint32 type)
+{
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+    if (type >= PGE_WINDOWSHOWN && type <= PGE_WINDOWDISPLAYCHANGED) {
+        /* SDL2 stores all native window events as SDL_WINDOWEVENT. Match the
+         * subtype without modifying queued events, including on sdl2-compat.
+         */
+        pgWindowEventFilter filter = {event, type, action, 0};
+        SDL_FilterEvents(_pg_filter_window_events, &filter);
+        return filter.found;
+    }
+#endif
+    return SDL_PeepEvents(event, 1, action, type, type);
 }
 
 /* Handle blocking of pseudo-blocked events.
@@ -2030,6 +2069,12 @@ _pg_flush_events(Uint32 type)
         SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
     }
     else {
+#if !SDL_VERSION_ATLEAST(3, 0, 0)
+        if (type >= PGE_WINDOWSHOWN && type <= PGE_WINDOWDISPLAYCHANGED) {
+            pgWindowEventFilter filter = {NULL, type, SDL_GETEVENT, 0};
+            SDL_FilterEvents(_pg_filter_window_events, &filter);
+        }
+#endif
         SDL_FlushEvent(type);
         SDL_FlushEvent(_pg_pgevent_proxify(type));
     }
@@ -2153,7 +2198,7 @@ _pg_get_all_events_except(PyObject *obj)
         }
 
         do {
-            ret = PG_PEEP_EVENT(&event, 1, SDL_GETEVENT, type);
+            ret = _pg_peep_event(&event, SDL_GETEVENT, type);
             if (ret < 0) {
                 PyErr_SetString(pgExc_SDLError, SDL_GetError());
                 goto error;
@@ -2176,8 +2221,8 @@ _pg_get_all_events_except(PyObject *obj)
             }
         } while (ret);
         do {
-            ret = PG_PEEP_EVENT(&event, 1, SDL_GETEVENT,
-                                _pg_pgevent_proxify(type));
+            ret = _pg_peep_event(&event, SDL_GETEVENT,
+                                 _pg_pgevent_proxify(type));
             if (ret < 0) {
                 PyErr_SetString(pgExc_SDLError, SDL_GetError());
                 goto error;
@@ -2287,7 +2332,7 @@ _pg_get_seq_events(PyObject *obj)
         }
 
         do {
-            ret = PG_PEEP_EVENT(&event, 1, SDL_GETEVENT, type);
+            ret = _pg_peep_event(&event, SDL_GETEVENT, type);
             if (ret < 0) {
                 PyErr_SetString(pgExc_SDLError, SDL_GetError());
                 goto error;
@@ -2299,8 +2344,8 @@ _pg_get_seq_events(PyObject *obj)
             }
         } while (ret);
         do {
-            ret = PG_PEEP_EVENT(&event, 1, SDL_GETEVENT,
-                                _pg_pgevent_proxify(type));
+            ret = _pg_peep_event(&event, SDL_GETEVENT,
+                                 _pg_pgevent_proxify(type));
             if (ret < 0) {
                 PyErr_SetString(pgExc_SDLError, SDL_GetError());
                 goto error;
@@ -2395,7 +2440,7 @@ pg_event_peek(PyObject *self, PyObject *args, PyObject *kwargs)
                 Py_DECREF(seq);
                 return NULL;
             }
-            res = PG_PEEP_EVENT(&event, 1, SDL_PEEKEVENT, type);
+            res = _pg_peep_event(&event, SDL_PEEKEVENT, type);
             if (res) {
                 Py_DECREF(seq);
 
@@ -2404,8 +2449,8 @@ pg_event_peek(PyObject *self, PyObject *args, PyObject *kwargs)
                 }
                 Py_RETURN_TRUE;
             }
-            res = PG_PEEP_EVENT(&event, 1, SDL_PEEKEVENT,
-                                _pg_pgevent_proxify(type));
+            res = _pg_peep_event(&event, SDL_PEEKEVENT,
+                                 _pg_pgevent_proxify(type));
             if (res) {
                 Py_DECREF(seq);
 

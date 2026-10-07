@@ -942,6 +942,74 @@ class EventModuleTest(unittest.TestCase):
         self.assertEqual(pygame.event.poll().type, pygame.NOEVENT)
 
 
+class EventModuleWindowTest(unittest.TestCase):
+    def setUp(self):
+        pygame.display.init()
+        self.addCleanup(pygame.display.quit)
+        self.window = pygame.Window(size=(64, 64), hidden=True)
+        self.addCleanup(self.window.destroy)
+
+    def _queue_window_events(self):
+        self.window.hide()
+        pygame.event.clear()
+        # Generate native events. event.post() uses a different queue type.
+        for _ in range(2):
+            self.window.show()
+            self.window.hide()
+        self.posted = pygame.Event(pygame.WINDOWSHOWN, source="posted")
+        pygame.event.post(self.posted)
+
+    def test_get_native_window_events(self):
+        for selector in (pygame.WINDOWSHOWN, [pygame.WINDOWSHOWN]):
+            with self.subTest(selector=selector):
+                self._queue_window_events()
+                events = pygame.event.get(selector, pump=False)
+                self.assertEqual([e.type for e in events], [pygame.WINDOWSHOWN] * 3)
+                self.assertEqual(
+                    sum(e.dict.get("window") is self.window for e in events), 2
+                )
+                self.assertIn(self.posted, events)
+                remaining = pygame.event.get(pump=False)
+                self.assertNotIn(pygame.WINDOWSHOWN, [e.type for e in remaining])
+                self.assertEqual(
+                    [e.type for e in remaining].count(pygame.WINDOWHIDDEN), 2
+                )
+
+    def test_get_exclude_native_window_events(self):
+        for selector in (pygame.WINDOWSHOWN, [pygame.WINDOWSHOWN]):
+            with self.subTest(selector=selector):
+                self._queue_window_events()
+                events = pygame.event.get(exclude=selector, pump=False)
+                self.assertNotIn(pygame.WINDOWSHOWN, [e.type for e in events])
+                self.assertEqual([e.type for e in events].count(pygame.WINDOWHIDDEN), 2)
+                remaining = pygame.event.get(pump=False)
+                self.assertEqual([e.type for e in remaining], [pygame.WINDOWSHOWN] * 3)
+                self.assertIn(self.posted, remaining)
+
+    def test_clear_native_window_events(self):
+        for selector in (pygame.WINDOWSHOWN, [pygame.WINDOWSHOWN]):
+            with self.subTest(selector=selector):
+                self._queue_window_events()
+                pygame.event.clear(selector, pump=False)
+                remaining = pygame.event.get(pump=False)
+                self.assertNotIn(pygame.WINDOWSHOWN, [e.type for e in remaining])
+                self.assertEqual(
+                    [e.type for e in remaining].count(pygame.WINDOWHIDDEN), 2
+                )
+
+    def test_peek_native_window_events(self):
+        for selector in (pygame.WINDOWHIDDEN, [pygame.WINDOWHIDDEN]):
+            with self.subTest(selector=selector):
+                self._queue_window_events()
+                self.assertFalse(pygame.event.peek(pygame.WINDOWCLOSE, pump=False))
+                for _ in range(2):
+                    self.assertTrue(pygame.event.peek(selector, pump=False))
+                events = pygame.event.get(pump=False)
+                self.assertEqual([e.type for e in events].count(pygame.WINDOWHIDDEN), 2)
+                self.assertEqual([e.type for e in events].count(pygame.WINDOWSHOWN), 3)
+                self.assertFalse(pygame.event.peek(selector, pump=False))
+
+
 class EventModuleTestsWithTiming(unittest.TestCase):
     __tags__ = ["timing"]
 
